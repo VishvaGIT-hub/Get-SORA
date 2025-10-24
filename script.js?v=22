@@ -1,0 +1,1304 @@
+// Sora For All - Line System Application
+// DEV FLAG - Set to true for development, false for production
+const DEV_MODE = false;
+
+// Mobile menu toggle
+function toggleMenu() {
+    const nav = document.getElementById('main-nav');
+    nav.classList.toggle('active');
+}
+
+// Sora For All Class - Line System
+class SoraForAll {
+    constructor() {
+        this.socket = null;
+        this.currentSection = 'main';
+        this.inviteCode = null;
+        this.linePosition = null;
+        this.isInLine = false;
+        this.chatInterface = null;
+        this.chatState = 'initial'; // Track chat conversation state: 'initial', 'awaiting_promise', 'completed'
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        // Connection will be handled by initializeSoraForAll when UserSocket is ready
+    }
+
+    setupEventListeners() {
+        // Main section buttons - NEW LINE SYSTEM
+        const getCodeBtn = document.getElementById('get-code-btn');
+        if (getCodeBtn) {
+            getCodeBtn.addEventListener('click', () => {
+                this.startChatFlow();
+            });
+        }
+
+        // OLD: Rules section buttons (not used in line system)
+        // document.getElementById('deal-btn').addEventListener('click', () => {
+        //     this.requestCode();
+        // });
+
+        const backBtn = document.getElementById('back-btn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                this.showMain();
+            });
+        }
+
+        // Code section buttons
+        const copyCodeBtn = document.getElementById('copy-code-btn');
+        if (copyCodeBtn) {
+            copyCodeBtn.addEventListener('click', () => {
+                this.copyCode();
+            });
+        }
+
+        const codeWorkedBtn = document.getElementById('code-worked-btn');
+        if (codeWorkedBtn) {
+            codeWorkedBtn.addEventListener('click', () => {
+                this.submitCodeResult(true);
+            });
+        }
+
+        const codeFailedBtn = document.getElementById('code-failed-btn');
+        if (codeFailedBtn) {
+            codeFailedBtn.addEventListener('click', () => {
+                this.submitCodeResult(false);
+            });
+        }
+
+        // Donate section buttons
+        const donateCodeBtn = document.getElementById('donate-code-btn');
+        if (donateCodeBtn) {
+            donateCodeBtn.addEventListener('click', () => {
+                this.showDonate();
+            });
+        }
+
+        const submitDonateBtn = document.getElementById('submit-donate-btn');
+        if (submitDonateBtn) {
+            submitDonateBtn.addEventListener('click', () => {
+                this.submitDonateCode();
+            });
+        }
+
+        const cancelDonateBtn = document.getElementById('cancel-donate-btn');
+        if (cancelDonateBtn) {
+            cancelDonateBtn.addEventListener('click', () => {
+                this.showMain();
+            });
+        }
+
+        // Line system buttons
+        const leaveLineBtn = document.getElementById('leave-line-btn');
+        if (leaveLineBtn) {
+            leaveLineBtn.addEventListener('click', () => {
+                this.leaveLine();
+            });
+        }
+
+        // Real-time validation for donate code input
+        const donateCodeInput = document.getElementById('donate-code-input');
+        if (donateCodeInput) {
+            donateCodeInput.addEventListener('input', (e) => {
+                const code = e.target.value.trim().toUpperCase();
+                const submitBtn = document.getElementById('submit-donate-btn');
+
+                if (code.length === 6) {
+                    if (this.isFakeCode(code)) {
+                        e.target.style.borderColor = '#e74c3c';
+                        if (submitBtn) {
+                            submitBtn.disabled = true;
+                            submitBtn.title = 'This code appears to be fake';
+                        }
+                    } else {
+                        e.target.style.borderColor = '#27ae60';
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.title = 'Click to donate this code';
+                        }
+                    }
+                } else {
+                    e.target.style.borderColor = '';
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.title = '';
+                    }
+                }
+            });
+        }
+
+        // Close mobile menu when clicking a link
+        const navLinks = document.querySelectorAll('#main-nav a');
+        navLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                const nav = document.getElementById('main-nav');
+                if (nav.classList.contains('active')) {
+                    nav.classList.remove('active');
+                }
+            });
+        });
+
+        // Simple anchor link handling
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    }
+
+    connectToServer() {
+        console.log('ðŸ” SORA: Starting connection process...');
+
+        // Use the existing UserSocket connection system
+        const checkUserSocket = () => {
+            if (window.UserSocket && window.UserSocket.getSocket) {
+                this.socket = window.UserSocket.getSocket();
+                console.log('ðŸ” SORA: Socket obtained:', this.socket);
+
+                if (this.socket) {
+                    this.setupSoraEvents(this.socket);
+                    console.log('âœ… SORA: Sora For All initialized with existing UserSocket');
+                } else {
+                    console.log('â³ SORA: Socket not ready yet, waiting...');
+                    setTimeout(checkUserSocket, 100);
+                }
+            } else {
+                console.log('â³ SORA: UserSocket not loaded yet, waiting...');
+                setTimeout(checkUserSocket, 100);
+            }
+        };
+
+        checkUserSocket();
+    }
+
+    setupSoraEvents(socket) {
+        console.log('ðŸ”Œ Setting up Sora socket events...');
+
+        socket.on('connect', () => {
+            console.log('âœ… SORA: Connected to server via UserSocket');
+            this.updateInviteCount();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('âŒ SORA: Disconnected from server');
+        });
+
+        // OLD SYSTEM EVENTS - Not used in line system
+        // socket.on('codeResponse', (data) => {
+        //     console.log('ðŸŽ« SORA: codeResponse received:', data);
+        //     this.handleCodeResponse(data);
+        // });
+
+        // socket.on('codeResultResponse', (data) => {
+        //     console.log('ðŸ“ SORA: codeResultResponse received:', data);
+        //     this.handleCodeResultResponse(data);
+        // });
+
+        // socket.on('nextSteps', (data) => {
+        //     console.log('ðŸ‘£ SORA: nextSteps received:', data);
+        //     this.showNextSteps(data);
+        // });
+
+        // socket.on('newCodeResponse', (data) => {
+        //     console.log('âž• SORA: newCodeResponse received:', data);
+        //     this.handleNewCodeResponse(data);
+        // });
+
+        socket.on('line_stats', (data) => {
+            console.log('ðŸ“Š LINE: Stats received:', data);
+            this.updateInviteCount(data.availableCodes || data.count || 0);
+        });
+
+        socket.on('sora_error', (data) => {
+            console.error('ðŸš¨ SORA: sora_error received:', data);
+            this.showError(data.message || 'An error occurred');
+        });
+
+        // OLD SYSTEM - donateCodeResponse (replaced with line_donate_response)
+        // socket.on('donateCodeResponse', (response) => {
+        //     console.log('ðŸ’ SORA: donateCodeResponse received:', response);
+        // });
+
+        // NEW LINE SYSTEM EVENTS (ALL prefixed with 'line_')
+        socket.on('line_position', (data) => {
+            console.log('ðŸ“ LINE: Position update received:', data);
+            this.updateLinePosition(data.position);
+            // Only show line position if user hasn't been assigned a code yet AND is actively in line
+            if (!this.inviteCode && this.isInLine) {
+                this.showLinePosition();
+            }
+        });
+
+        // REMOVED: No more annoying banners! Positions update silently now
+        // socket.on('line_updated', (data) => {
+        //     console.log('ðŸ”„ LINE: Line moved forward:', data);
+        //     if (data.type === 'batch_position_update') {
+        //         this.handleBatchPositionUpdate(data);
+        //     } else {
+        //         this.handleLineUpdate(data);
+        //     }
+        // });
+
+        socket.on('line_code_assigned', (data) => {
+            console.log('ðŸŽ« LINE: Code assigned:', data);
+            this.handleCodeAssigned(data);
+        });
+
+        socket.on('line_ping_check', () => {
+            console.log('ðŸ“ LINE: Ping check received');
+            this.handlePingCheck();
+        });
+
+        socket.on('line_cooldown', (data) => {
+            console.log('â° LINE: Cooldown message:', data);
+            this.showCooldownMessage(data);
+        });
+
+        // Note: line_donate_response is handled per-request in submitDonateCode()
+
+        console.log('âœ… Sora socket events setup complete');
+    }
+
+    updateInviteCount(count = null) {
+        const countElement = document.getElementById('invite-count');
+        if (countElement) {
+            if (count !== null) {
+                countElement.textContent = count;
+            } else {
+                countElement.textContent = 'Loading...';
+            }
+        }
+    }
+
+    showMain() {
+        this.hideAllSections();
+        document.getElementById('main-section').classList.remove('hidden');
+        this.currentSection = 'main';
+    }
+
+    showRules() {
+        this.hideAllSections();
+        document.getElementById('rules-section').classList.remove('hidden');
+        this.currentSection = 'rules';
+    }
+
+    showCode() {
+        this.hideAllSections();
+        document.getElementById('code-section').classList.remove('hidden');
+        this.currentSection = 'code';
+    }
+
+    showDonate() {
+        this.hideAllSections();
+        document.getElementById('donate-section').classList.remove('hidden');
+        this.currentSection = 'donate';
+        document.getElementById('donate-code-input').value = '';
+    }
+
+    hideAllSections() {
+        const sections = [
+            'main-section',
+            'rules-section',
+            'code-section',
+            'code-result-section',
+            'next-steps-section',
+            'try-again-section',
+            'donate-section',
+            'chat-section',
+            'line-section'
+        ];
+
+        sections.forEach(sectionId => {
+            const section = document.getElementById(sectionId);
+            if (section) {
+                section.classList.add('hidden');
+            }
+        });
+    }
+
+    // OLD SYSTEM - Not used in line system
+    // requestCode() {
+    //     if (!this.socket || !this.socket.connected) {
+    //         this.showError('Not connected to server. Please refresh the page.');
+    //         return;
+    //     }
+
+    //     const dealBtn = document.getElementById('deal-btn');
+    //     const originalText = dealBtn.innerHTML;
+    //     dealBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Getting Code...';
+    //     dealBtn.disabled = true;
+
+    //     this.socket.emit('getCode');
+    // }
+
+    handleCodeResponse(data) {
+        const dealBtn = document.getElementById('deal-btn');
+        dealBtn.innerHTML = '<i class="fas fa-handshake"></i> Deal?';
+        dealBtn.disabled = false;
+
+        if (data.success) {
+            this.inviteCode = data.code;
+            this.displayCode(data.code);
+            this.showCode();
+        } else {
+            this.showError(data.message || 'Failed to get invite code');
+        }
+    }
+
+    handleCodeResultResponse(data) {
+        // This is called when code FAILED - show try again screen
+        this.showTryAgain(data);
+    }
+
+    showTryAgain(data) {
+        console.log('ðŸ” Showing try again section...');
+
+        // Reset code result buttons
+        const workedBtn = document.getElementById('code-worked-btn');
+        const failedBtn = document.getElementById('code-failed-btn');
+        if (workedBtn) {
+            workedBtn.innerHTML = '<i class="fas fa-check"></i> I got in!';
+            workedBtn.disabled = false;
+        }
+        if (failedBtn) {
+            failedBtn.innerHTML = '<i class="fas fa-times"></i> Didn\'t work';
+            failedBtn.disabled = false;
+        }
+
+        this.hideAllSections();
+
+        let tryAgainSection = document.getElementById('try-again-section');
+        if (!tryAgainSection) {
+            tryAgainSection = this.createTryAgainSection();
+            document.querySelector('.service-container').appendChild(tryAgainSection);
+        }
+
+        tryAgainSection.classList.remove('hidden');
+        this.currentSection = 'tryAgain';
+
+        // If there's a cooldown, start it
+        if (data.cooldown) {
+            this.startCooldown(data.cooldown);
+        }
+    }
+
+    createTryAgainSection() {
+        const section = document.createElement('div');
+        section.id = 'try-again-section';
+        section.className = 'service-section hidden';
+        section.innerHTML = `
+            <div class="service-card">
+                <h3 class="section-title" style="color: var(--warning-color);">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Code Didn't Work
+                </h3>
+                <div class="instructions-box">
+                    <p><strong>Don't worry!</strong> Sometimes codes get used up quickly.</p>
+                    <p>You'll be able to try again in a moment.</p>
+                    <div id="cooldown-timer" style="text-align: center; margin: 1.5rem 0; font-size: 2rem; font-weight: bold; color: var(--primary-color);"></div>
+                    <p style="text-align: center; color: var(--text-secondary); margin-top: 1rem; font-size: 0.9rem;">
+                        The page will refresh automatically when ready.
+                    </p>
+                </div>
+            </div>
+        `;
+        return section;
+    }
+
+    startCooldown(duration) {
+        const timerElement = document.getElementById('cooldown-timer');
+        if (!timerElement) return;
+
+        let remaining = Math.ceil(duration / 1000);
+        timerElement.textContent = `${remaining}s`;
+
+        const interval = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(interval);
+                timerElement.textContent = 'Ready!';
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                timerElement.textContent = `${remaining}s`;
+            }
+        }, 1000);
+    }
+
+    showNextSteps(data) {
+        console.log('ðŸ” Showing next steps section...');
+        this.hideAllSections();
+
+        let nextStepsSection = document.getElementById('next-steps-section');
+        if (!nextStepsSection) {
+            nextStepsSection = this.createNextStepsSection();
+            document.querySelector('.service-container').appendChild(nextStepsSection);
+        }
+
+        nextStepsSection.classList.remove('hidden');
+        this.currentSection = 'nextSteps';
+
+        const messageElement = document.getElementById('next-steps-message');
+        if (messageElement) {
+            messageElement.textContent = data.message;
+        }
+
+        const instructionsList = document.getElementById('next-steps-instructions');
+        if (instructionsList) {
+            instructionsList.innerHTML = '';
+            data.instructions.forEach((instruction) => {
+                const li = document.createElement('li');
+                li.textContent = instruction;
+                instructionsList.appendChild(li);
+            });
+        }
+    }
+
+    createNextStepsSection() {
+        const section = document.createElement('div');
+        section.id = 'next-steps-section';
+        section.className = 'service-section hidden';
+        section.innerHTML = `
+            <div class="service-card">
+                <h3 class="section-title success">
+                    <i class="fas fa-check-circle"></i>
+                    <span id="next-steps-message">Enjoy the app!</span>
+                </h3>
+                <div class="instructions-box">
+                    <p><strong>Now your part of the deal:</strong></p>
+                    <ol id="next-steps-instructions"></ol>
+                    <div class="input-group" style="margin-top: 1.5rem;">
+                        <input type="text" id="new-code-input" placeholder="Paste your invite code here..." maxlength="6" style="text-transform: uppercase;">
+                    </div>
+                    <div style="text-align: center; margin-top: 1rem;">
+                        <button id="submit-new-code-btn" class="btn btn-primary btn-large">
+                            <i class="fas fa-paper-plane"></i>
+                            Submit Code
+                        </button>
+                    </div>
+                    <p style="text-align: center; color: var(--text-secondary); margin-top: 1rem; font-size: 0.9rem;">This helps everyone get into Sora before it's too late!</p>
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            const submitBtn = document.getElementById('submit-new-code-btn');
+            const codeInput = document.getElementById('new-code-input');
+
+            if (submitBtn) {
+                submitBtn.addEventListener('click', () => {
+                    this.submitNewCode();
+                });
+            }
+
+            if (codeInput) {
+                codeInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.submitNewCode();
+                    }
+                });
+            }
+        }, 100);
+
+        return section;
+    }
+
+    submitNewCode() {
+        const codeInput = document.getElementById('new-code-input');
+        const code = codeInput.value.trim().toUpperCase();
+
+        if (!code) {
+            this.showError('Please enter a code');
+            return;
+        }
+
+        if (!/^[A-Z0-9]{6}$/.test(code)) {
+            this.showError('Code must be 6 alphanumeric characters');
+            return;
+        }
+
+        const submitBtn = document.getElementById('submit-new-code-btn');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+        submitBtn.disabled = true;
+
+        // OLD SYSTEM - Not used in line system
+        // this.socket.emit('newCode', { code: code });
+    }
+
+    handleNewCodeResponse(data) {
+        const submitBtn = document.getElementById('submit-new-code-btn');
+        const codeInput = document.getElementById('new-code-input');
+
+        submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Code';
+        submitBtn.disabled = false;
+
+        codeInput.value = '';
+        submitBtn.innerHTML = '<i class="fas fa-check"></i> Submitted!';
+        submitBtn.style.background = 'var(--success-color)';
+
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+    }
+
+    submitDonateCode() {
+        const codeInput = document.getElementById('donate-code-input');
+        const code = codeInput.value.trim().toUpperCase();
+
+        if (!/^[A-Z0-9]{6}$/.test(code)) {
+            this.showError('Please enter a valid 6-character code (letters and numbers only)');
+            return;
+        }
+
+        if (this.isFakeCode(code)) {
+            this.showError('This code appears to be fake. Please provide a real Sora invite code.');
+            return;
+        }
+
+        if (!this.socket && !DEV_MODE) {
+            this.showError('Not connected to server. Please try again.');
+            return;
+        }
+
+        const submitBtn = document.getElementById('submit-donate-btn');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Donating...';
+
+        if (this.socket) {
+            this.socket.emit('line_donate_code', { code });
+
+            this.socket.once('line_donate_response', (response) => {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+
+                if (response.success) {
+                    this.showSuccess(response.message);
+                    codeInput.value = '';
+                    setTimeout(() => {
+                        this.showMain();
+                    }, 2000);
+                } else {
+                    this.showError(response.message);
+                }
+            });
+        } else if (DEV_MODE) {
+            // Dev mode: simulate response
+            setTimeout(() => {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+                this.showSuccess('Thank you for donating your code! You just helped 4 more people! ðŸŽ‰');
+                codeInput.value = '';
+                setTimeout(() => {
+                    this.showMain();
+                }, 2000);
+            }, 1500);
+        }
+    }
+
+    isFakeCode(code) {
+        return false;
+    }
+
+    displayCode(code) {
+        const codeElement = document.getElementById('invite-code');
+        if (codeElement) {
+            codeElement.textContent = code;
+        }
+    }
+
+    copyCode() {
+        if (!this.inviteCode) {
+            this.showError('No code to copy');
+            return;
+        }
+
+        navigator.clipboard.writeText(this.inviteCode).then(() => {
+            const copyBtn = document.getElementById('copy-code-btn');
+            const originalIcon = copyBtn.innerHTML;
+
+            copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+            copyBtn.style.background = 'var(--success-color)';
+
+            setTimeout(() => {
+                copyBtn.innerHTML = originalIcon;
+                copyBtn.style.background = '';
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy code:', err);
+            this.showError('Failed to copy code to clipboard');
+        });
+    }
+
+    submitCodeResult(success) {
+        if (!this.inviteCode) {
+            this.showError('No code to submit result for');
+            return;
+        }
+
+        const workedBtn = document.getElementById('code-worked-btn');
+        const failedBtn = document.getElementById('code-failed-btn');
+
+        workedBtn.disabled = true;
+        failedBtn.disabled = true;
+
+        if (success) {
+            workedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        } else {
+            failedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        }
+
+        if (this.socket) {
+            this.socket.emit('line_code_result', {
+                code: this.inviteCode,
+                success: success
+            });
+
+            // Set up one-time listeners for all possible responses
+            this.socket.once('line_donate_response', (data) => {
+                this.handleDonateResponse(data);
+            });
+
+            this.socket.once('line_cooldown', (data) => {
+                this.handleCooldownResponse(data);
+            });
+
+            this.socket.once('line_position', (data) => {
+                this.handleRetryResponse(data);
+            });
+        } else if (DEV_MODE) {
+            // Dev mode: simulate response
+            setTimeout(() => {
+                if (success) {
+                    this.showSuccess('Awesome! Remember, your code will help 4 people!');
+                    setTimeout(() => this.showDonate(), 2500);
+                } else {
+                    this.showError('Code didn\'t work. You\'ll be placed near the front of the line again.');
+                    setTimeout(() => this.showMain(), 2000);
+                }
+
+                // Reset buttons
+                workedBtn.disabled = false;
+                failedBtn.disabled = false;
+                workedBtn.innerHTML = '<i class="fas fa-check"></i> I got in!';
+                failedBtn.innerHTML = '<i class="fas fa-times"></i> Didn\'t work';
+            }, 1500);
+        }
+    }
+
+    resetCodeResultButtons() {
+        const workedBtn = document.getElementById('code-worked-btn');
+        const failedBtn = document.getElementById('code-failed-btn');
+
+        if (workedBtn) {
+            workedBtn.disabled = false;
+            workedBtn.innerHTML = '<i class="fas fa-check"></i> I got in!';
+        }
+        if (failedBtn) {
+            failedBtn.disabled = false;
+            failedBtn.innerHTML = '<i class="fas fa-times"></i> Didn\'t work';
+        }
+    }
+
+    handleDonateResponse(data) {
+        console.log('ðŸ’ Handling donate response:', data);
+
+        // Reset buttons first
+        this.resetCodeResultButtons();
+
+        if (data.success) {
+            this.showSuccess(data.message || 'Awesome! Remember, your code will help 4 people!');
+            setTimeout(() => this.showDonate(), 2500);
+        } else {
+            this.showError(data.message || 'Something went wrong. Please try again.');
+        }
+    }
+
+    handleCooldownResponse(data) {
+        console.log('â° Handling cooldown response:', data);
+
+        // Reset buttons first
+        this.resetCodeResultButtons();
+
+        // Show cooldown message
+        this.showCooldownMessage(data);
+    }
+
+    handleRetryResponse(data) {
+        console.log('ðŸ”„ Handling retry response (code failed, back in line):', data);
+
+        // Reset buttons first
+        this.resetCodeResultButtons();
+
+        // Clear the old code since it failed
+        this.inviteCode = null;
+
+        // Show that code didn't work and they're back in line
+        this.showError('Code didn\'t work. You\'re back in line for a new code!');
+
+        // Update line position and mark as in line
+        this.updateLinePosition(data.position);
+        this.isInLine = true;
+
+        // Show line position after a short delay, but only if we haven't gotten a new code yet
+        setTimeout(() => {
+            if (!this.inviteCode) {
+                this.showLinePosition();
+            }
+        }, 2000);
+    }
+
+    showSuccess(message) {
+        const successDiv = document.createElement('div');
+        successDiv.className = 'notification';
+        successDiv.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--success-color);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            box-shadow: var(--shadow-lg);
+            z-index: 1000;
+            font-weight: 600;
+            text-align: center;
+        `;
+        successDiv.textContent = message;
+        document.body.appendChild(successDiv);
+
+        setTimeout(() => successDiv.remove(), 5000);
+    }
+
+    showError(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'notification';
+        errorDiv.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--danger-color);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            box-shadow: var(--shadow-lg);
+            z-index: 1000;
+            font-weight: 600;
+            max-width: 90%;
+            text-align: center;
+        `;
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+
+        setTimeout(() => errorDiv.remove(), 5000);
+    }
+
+    // ========================================
+    // NEW LINE SYSTEM METHODS
+    // ========================================
+
+    startChatFlow() {
+        if (DEV_MODE) console.log('ðŸš€ Starting chat flow...');
+
+        // Show chat interface
+        this.showChatInterface();
+
+        // Send request to server
+        if (this.socket) {
+            this.socket.emit('line_get_code');
+        } else if (DEV_MODE) {
+            console.log('âš ï¸ No socket connection - running in dev mode');
+            // Simulate server response for dev mode
+            setTimeout(() => {
+                this.simulateServerResponse();
+            }, 1000);
+        }
+    }
+
+    simulateServerResponse() {
+        if (DEV_MODE) console.log('ðŸ§ª Simulating server response for dev mode');
+        // Not needed anymore - handled in makePromise
+    }
+
+    simulateLineProgression() {
+        if (DEV_MODE) console.log('ðŸ§ª Simulating line progression...');
+
+        // Simulate line moving forward - start at position 5 for faster demo
+        let currentPosition = 5;
+        this.updateLinePosition(currentPosition);
+
+        const progressInterval = setInterval(() => {
+            currentPosition--;
+
+            if (currentPosition <= 0) {
+                clearInterval(progressInterval);
+                // Simulate code assignment
+                setTimeout(() => {
+                    this.handleCodeAssigned({ code: 'ABC123' });
+                }, 1000);
+            } else {
+                this.updateLinePosition(currentPosition);
+            }
+        }, 3000); // Every 3 seconds
+    }
+
+    showChatInterface() {
+        // Hide main section, show chat
+        this.hideAllSections();
+
+        // Reset chat state
+        this.chatState = 'initial';
+
+        // Create chat interface if it doesn't exist
+        if (!this.chatInterface) {
+            this.createChatInterface();
+        }
+
+        // Clear previous messages
+        const messages = document.getElementById('chat-messages');
+        if (messages) {
+            messages.innerHTML = '';
+        }
+
+        // Show chat section
+        const chatSection = document.getElementById('chat-section');
+        if (chatSection) {
+            chatSection.classList.remove('hidden');
+        }
+
+        // Start typing animation
+        this.startTypingAnimation();
+    }
+
+    createChatInterface() {
+        // Check if chat section already exists
+        if (document.getElementById('chat-section')) {
+            return;
+        }
+
+        // Create chat section HTML
+        const chatHTML = `
+            <div id="chat-section" class="service-section hidden">
+                <div class="service-card">
+                    <div class="chat-container">
+                        <div class="chat-header">
+                            <div class="chat-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="chat-info">
+                                <div class="chat-name">Escaping</div>
+                                <div class="chat-status" id="chat-status">online</div>
+                            </div>
+                        </div>
+                        <div class="chat-messages" id="chat-messages">
+                            <!-- Messages will be added here -->
+                        </div>
+                        <div class="chat-input-container">
+                            <input type="text" id="chat-input" placeholder="Type your response..." disabled>
+                            <button id="chat-send" disabled>
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Insert after main section
+        const mainSection = document.getElementById('main-section');
+        mainSection.insertAdjacentHTML('afterend', chatHTML);
+
+        // Mark as created
+        this.chatInterface = true;
+
+        // Setup chat event listeners
+        this.setupChatEventListeners();
+    }
+
+    setupChatEventListeners() {
+        const chatInput = document.getElementById('chat-input');
+        const chatSend = document.getElementById('chat-send');
+
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !chatSend.disabled) {
+                this.sendChatMessage();
+            }
+        });
+
+        chatSend.addEventListener('click', () => {
+            this.sendChatMessage();
+        });
+    }
+
+    startTypingAnimation() {
+        const status = document.getElementById('chat-status');
+        const messages = document.getElementById('chat-messages');
+
+        // Show typing indicator
+        status.textContent = 'typing...';
+
+        // Add typing message
+        const typingMsg = this.addChatMessage('Escaping', 'typing...', 'typing');
+
+        // After delay, show actual message
+        setTimeout(() => {
+            status.textContent = 'online';
+            typingMsg.remove();
+            this.addChatMessage('Escaping', 'The only rule to get a code is that once you sign in you GIVE YOUR NEW ONE BACK! We\'ll use it to help 4 more people!', 'bot');
+            this.addChatMessage('Escaping', 'Keep this code private. Share it back here after you use it.', 'bot');
+            this.addChatMessage('Escaping', 'Please type: "I promise to give my code back"', 'bot');
+
+            // Enable input
+            const chatInput = document.getElementById('chat-input');
+            const chatSend = document.getElementById('chat-send');
+            chatInput.disabled = false;
+            chatSend.disabled = false;
+            chatInput.focus();
+        }, 2000);
+    }
+
+    addChatMessage(sender, message, type = 'user') {
+        const messages = document.getElementById('chat-messages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${type}`;
+
+        if (type === 'typing') {
+            messageDiv.innerHTML = `
+                <div class="message-content">
+                    <span class="typing-dots">
+                        <span>.</span><span>.</span><span>.</span>
+                    </span>
+                </div>
+            `;
+        } else {
+            messageDiv.innerHTML = `
+                <div class="message-content">${message}</div>
+            `;
+        }
+
+        messages.appendChild(messageDiv);
+        messages.scrollTop = messages.scrollHeight;
+
+        return messageDiv;
+    }
+
+    // Levenshtein distance function for fuzzy matching
+    levenshteinDistance(str1, str2) {
+        const len1 = str1.length;
+        const len2 = str2.length;
+        const matrix = [];
+
+        // Initialize matrix
+        for (let i = 0; i <= len1; i++) {
+            matrix[i] = [i];
+        }
+        for (let j = 0; j <= len2; j++) {
+            matrix[0][j] = j;
+        }
+
+        // Fill matrix
+        for (let i = 1; i <= len1; i++) {
+            for (let j = 1; j <= len2; j++) {
+                if (str1[i - 1] === str2[j - 1]) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                } else {
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + 1, // substitution
+                        matrix[i][j - 1] + 1,     // insertion
+                        matrix[i - 1][j] + 1      // deletion
+                    );
+                }
+            }
+        }
+
+        return matrix[len1][len2];
+    }
+
+    matchesPhrase(userInput, expectedPhrase, maxCharDiff) {
+        // Trim and lowercase both
+        const input = userInput.trim().toLowerCase();
+        const expected = expectedPhrase.trim().toLowerCase();
+
+        // Calculate edit distance
+        const distance = this.levenshteinDistance(input, expected);
+
+        // Allow up to maxCharDiff character differences
+        return distance <= maxCharDiff;
+    }
+
+    sendChatMessage() {
+        const chatInput = document.getElementById('chat-input');
+        const message = chatInput.value.trim();
+
+        if (!message) return;
+
+        // Add user message to chat
+        this.addChatMessage('You', message, 'user');
+
+        if (this.chatState === 'initial') {
+            // First step: user must type "I promise to give my code back" (with fuzzy matching)
+            const expectedPhrase = "I promise to give my code back";
+            if (this.matchesPhrase(message, expectedPhrase, 10)) {
+                this.chatState = 'awaiting_number';
+                // Ask about giving back
+                setTimeout(() => {
+                    this.addChatMessage('Escaping', 'It\'s important to give back, your code will help 4 people! How many will you help? Type 4.', 'bot');
+                }, 500);
+            } else {
+                this.addChatMessage('Escaping', 'Please type "I promise to give my code back" to continue.', 'bot');
+            }
+        } else if (this.chatState === 'awaiting_number') {
+            // Second step: user must type "4" or "four"
+            const answer = message.toLowerCase();
+            if (answer === '4' || answer === 'four') {
+                // Third and final confirmation step
+                this.chatState = 'awaiting_repay';
+                setTimeout(() => {
+                    this.addChatMessage('Escaping', 'Ok, final one. The system WILL DIE without your donation. Will you repay with a code? Type: I will repay with a code', 'bot');
+                }, 500);
+            } else {
+                this.addChatMessage('Escaping', 'Please type 4.', 'bot');
+            }
+        } else if (this.chatState === 'awaiting_repay') {
+            // Third step: user must type "I will repay with a code" (fuzzy match)
+            const expectedRepay = 'I will repay with a code';
+            if (this.matchesPhrase(message, expectedRepay, 10)) {
+                this.chatState = 'completed';
+                this.makePromise();
+            } else {
+                this.addChatMessage('Escaping', 'Please type exactly: I will repay with a code', 'bot');
+            }
+        }
+
+        chatInput.value = '';
+    }
+
+    makePromise() {
+        if (DEV_MODE) console.log('ðŸ¤ User made promise, joining line...');
+
+        // Disable input
+        const chatInput = document.getElementById('chat-input');
+        const chatSend = document.getElementById('chat-send');
+        chatInput.disabled = true;
+        chatSend.disabled = true;
+
+        // Send to server
+        if (this.socket) {
+            this.socket.emit('line_make_promise');
+            // Show line position immediately (will be updated by server)
+            this.addChatMessage('Escaping', 'Great! Adding you to the line...', 'bot');
+            setTimeout(() => {
+                // Only show line position if we haven't been assigned a code yet
+                if (!this.inviteCode) {
+                    this.isInLine = true; // Mark user as in line
+                    this.showLinePosition();
+                }
+            }, 1000);
+        } else if (DEV_MODE) {
+            // Dev mode: simulate server response
+            this.addChatMessage('Escaping', 'Great! Adding you to the line...', 'bot');
+            setTimeout(() => {
+                // Only show line position if we haven't been assigned a code yet
+                if (!this.inviteCode) {
+                    this.isInLine = true; // Mark user as in line
+                    this.showLinePosition();
+
+                    // Simulate line progression (starts at position 5)
+                    this.simulateLineProgression();
+                }
+            }, 1500);
+        }
+    }
+
+    showLinePosition() {
+        // Hide all sections, show line position
+        this.hideAllSections();
+
+        const lineSection = document.getElementById('line-section');
+        if (lineSection) lineSection.classList.remove('hidden');
+
+        this.isInLine = true;
+    }
+
+    updateLinePosition(position) {
+        this.linePosition = position;
+
+        // Update position display
+        const positionElement = document.getElementById('line-position');
+        if (positionElement) {
+            positionElement.textContent = position;
+        }
+
+        // Optional: Could add a notification when position is 1
+        if (position === 1 && DEV_MODE) {
+            console.log('ðŸŽ‰ You\'re next! Get ready for your code!');
+        }
+    }
+
+    handleLineUpdate(data) {
+        console.log('ðŸ”„ Handling line update, current position:', this.linePosition, 'isInLine:', this.isInLine);
+
+        // Only update if user is in line and has a position
+        if (this.isInLine && this.linePosition && this.linePosition > 1) {
+            this.linePosition--;
+            this.updateLinePosition(this.linePosition);
+
+            // Make sure line section is visible
+            this.showLinePosition();
+
+            console.log('ðŸ“ Position updated to:', this.linePosition);
+        }
+    }
+
+    handleBatchPositionUpdate(data) {
+        console.log('ðŸ“Š Handling batch position update:', data);
+
+        if (!this.isInLine) return;
+
+        // Show batch update message
+        this.showBatchUpdateMessage(data);
+
+        // For large lines, we don't update exact position immediately
+        // The user will get their exact position on next refresh or when they get closer to front
+    }
+
+    showBatchUpdateMessage(data) {
+        // Create a temporary notification for batch updates
+        const notification = document.createElement('div');
+        notification.className = 'batch-update-notification';
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary-color);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.75rem;
+            box-shadow: var(--shadow-lg);
+            z-index: 1000;
+            font-weight: 600;
+            text-align: center;
+            max-width: 90%;
+        `;
+
+        notification.innerHTML = `
+            <div style="font-size: 1.1rem; margin-bottom: 0.5rem;">${data.message}</div>
+            <div style="font-size: 0.9rem; opacity: 0.9;">
+                Position: ${data.yourPositionRange} | Total in line: ${data.totalInLine}
+            </div>
+        `;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 3000);
+    }
+
+    handleCodeAssigned(data) {
+        // Update state first
+        this.inviteCode = data.code;
+        this.isInLine = false;
+
+        // Hide all sections, then show code section
+        this.hideAllSections();
+
+        const codeSection = document.getElementById('code-section');
+        if (codeSection) codeSection.classList.remove('hidden');
+
+        // Update code display
+        const codeElement = document.getElementById('invite-code');
+        if (codeElement) {
+            codeElement.textContent = data.code;
+        }
+    }
+
+    handlePingCheck() {
+        // Respond to ping
+        if (this.socket) {
+            this.socket.emit('line_pong');
+        }
+    }
+
+    showCooldownMessage(data) {
+        const message = `Thank you! Try again at ${new Date(data.cooldownUntil).toLocaleString()}`;
+        this.showError(message);
+    }
+
+    leaveLine() {
+        if (DEV_MODE) console.log('ðŸšª User leaving line...');
+
+        // Send to server
+        if (this.socket) {
+            this.socket.emit('line_leave');
+        }
+
+        // Reset state
+        this.isInLine = false;
+        this.linePosition = null;
+
+        // Show main section
+        this.showMain();
+    }
+
+}
+
+// Initialize Sora For All
+function initializeSoraForAll() {
+    console.log('ðŸš€ SORA: Starting Sora For All initialization...');
+
+    // In DEV_MODE, skip server connection and just create the app
+    if (DEV_MODE) {
+        console.log('ðŸ§ª DEV MODE: Initializing without server connection...');
+        window.soraApp = new SoraForAll();
+        window.soraApp.updateInviteCount(23); // Fake count for dev mode
+        console.log('âœ… SORA: Dev mode initialization complete!');
+        return;
+    }
+
+    const checkUserSocket = () => {
+        console.log('ðŸ” SORA: Checking UserSocket availability...');
+
+        if (window.UserSocket && window.UserSocket.getSocket) {
+            const socket = window.UserSocket.getSocket();
+
+            if (socket) {
+                console.log('âœ… SORA: Creating SoraForAll instance...');
+                window.soraApp = new SoraForAll();
+                window.soraApp.connectToServer();
+                console.log('âœ… SORA: Sora For All initialization complete!');
+            } else {
+                console.log('â³ SORA: Socket not ready yet, waiting...');
+                setTimeout(checkUserSocket, 100);
+            }
+        } else {
+            console.log('â³ SORA: UserSocket not loaded yet, waiting...');
+            setTimeout(checkUserSocket, 100);
+        }
+    };
+
+    checkUserSocket();
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', initializeSoraForAll);
+
+// Make the app globally accessible
+window.SoraForAll = SoraForAll;
